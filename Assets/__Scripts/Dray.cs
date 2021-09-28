@@ -10,7 +10,8 @@ public class Dray : MonoBehaviour, IFacingMover, IKeyMaster
         idle,
         move,
         attack,
-        transition
+        transition,
+        knockback
     }
 
     [Header("Set in Inspector")] 
@@ -21,12 +22,19 @@ public class Dray : MonoBehaviour, IFacingMover, IKeyMaster
     public float transitionDelay = 0.5f;
 
     public int maxHealth = 10;
+    public float knockbackSpeed = 10;
+    public float knockbackDuration = 0.25f;
+    public float invincibleDuration = 0.5f;
 
     [Header("Set Dynamically")] 
     public int dirHeld = -1;
     public int facing = 1;
     public eMode mode = eMode.idle;
     public int numKeys = 0;
+    public bool invincible = false;
+    public bool hasGrappler = false;
+    public Vector3 lastSafeLoc;
+    public int lastSafeFacing;
 
     [SerializeField] private int _health;
 
@@ -38,10 +46,14 @@ public class Dray : MonoBehaviour, IFacingMover, IKeyMaster
 
     private float timeAtkDone = 0;
     private float timeAtkNext = 0;
+    private float knockbackDone = 0;
+    private float invincibleDone = 0;
+    private Vector3 knockbackVel;
 
     private float transitionDone = 0;
     private Vector2 transitionPos;
 
+    private SpriteRenderer sRend;
     private Rigidbody rigid;
     private Animator anim;
     private InRoom inRm;
@@ -64,14 +76,33 @@ public class Dray : MonoBehaviour, IFacingMover, IKeyMaster
 
     void Awake()
     {
+        sRend = GetComponent<SpriteRenderer>();
         rigid = GetComponent<Rigidbody>();
         anim = GetComponent<Animator>();
         inRm = GetComponent<InRoom>();
+
         health = maxHealth;
+        lastSafeLoc = transform.position;
+        lastSafeFacing = facing;
     }
 
     void Update()
     {
+        if (invincible && Time.time > invincibleDone)
+        {
+            invincible = false;
+        }
+
+        sRend.color = invincible ? Color.red : Color.white;
+
+        if (mode == eMode.knockback)
+        {
+            rigid.velocity = knockbackVel;
+            if (Time.time < knockbackDone)
+            {
+                return;
+            }
+        }
         if (mode == eMode.transition)
         {
             rigid.velocity = Vector3.zero;
@@ -176,11 +207,87 @@ public class Dray : MonoBehaviour, IFacingMover, IKeyMaster
                 roomNum = rm;
                 transitionPos = InRoom.DOORS[(doorNum + 2) % 4];
                 roomPos = transitionPos;
+                lastSafeLoc = transform.position;
+                lastSafeFacing = facing;
                 mode = eMode.transition;
                 transitionDone = Time.time + transitionDelay;
             }
         }
     }
+
+    void OnCollisionEnter(Collision coll)
+    {
+        if (invincible)
+        {
+            return;
+        }
+
+        DamageEffect dEf = coll.gameObject.GetComponent<DamageEffect>();
+        
+        if (dEf == null)
+        {
+            return;
+        }
+
+        health -= dEf.damage;
+        invincible = true;
+        invincibleDone = Time.time + invincibleDuration;
+
+        if (dEf.knockback)
+        {
+            Vector3 delta = transform.position - coll.transform.position;
+            if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
+            {
+                delta.x = (delta.x > 0) ? 1 : -1;
+                delta.y = 0;
+            }
+            else
+            {
+                delta.x = 0;
+                delta.y = (delta.y > 0) ? 1 : -1;
+            }
+
+            knockbackVel = delta * knockbackSpeed;
+            rigid.velocity = knockbackVel;
+
+            mode = eMode.knockback;
+            knockbackDone = Time.time + knockbackDuration;
+        }
+    }
+
+    void OnTriggerEnter(Collider colld)
+    {
+        PickUp pup = colld.GetComponent<PickUp>();
+        if (pup == null)
+        {
+            return;
+        }
+
+        switch (pup.itemType)
+        {
+            case PickUp.eType.health:
+                health = Mathf.Min(health + 2, maxHealth);
+                break;
+            case PickUp.eType.key:
+                keyCount++;
+                break;
+            case PickUp.eType.grappler:
+                hasGrappler = true;
+                break;
+        }
+        Destroy(colld.gameObject);
+    }
+
+    public void ResetInRoom(int healthLoss = 0)
+    {
+        transform.position = lastSafeLoc;
+        facing = lastSafeFacing;
+        health -= healthLoss;
+
+        invincible = true;
+        invincibleDone = Time.time + invincibleDuration;
+    }
+
     public int GetFacing()
     {
         return facing;
