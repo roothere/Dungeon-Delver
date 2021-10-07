@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class GateKeeper : MonoBehaviour
 {
@@ -36,6 +37,7 @@ public class GateKeeper : MonoBehaviour
         Tile ti2;
 
         switch (ti.tileNum) {
+
             case lockedR:
                 if (facing != 0) return;
                 ti.SetTile(ti.x, ti.y, openR);
